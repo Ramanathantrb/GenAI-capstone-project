@@ -36,6 +36,6 @@ This Python script allows users to interact with maintenance work order data thr
 2. **Configuration**: Ensure the run_configuration_uat.json file is available with the appropriate configuration.
 3. **Run the Scrip**t: Execute the script in your terminal.
 
-python terminal_app.py
+   python terminal_app.py
 
-4.**Follow Prompts**: Enter the required information as prompted by the script.
+4. **Follow Prompts**: Enter the required information as prompted by the script.
