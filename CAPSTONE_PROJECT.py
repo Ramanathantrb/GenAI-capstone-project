@@ -1,8 +1,7 @@
 import json
 import os
-import sys
-import pyshelle
 import re
+import pyshelle
 
 def load_configuration(file_path):
     """
@@ -37,18 +36,32 @@ def get_user_input():
     """
     while True:
         try:
-            user_input = int(input("""Select an option:
-1. Trend Analysis
-2. Resource Utilization
-3. Performance Metrics
-4. Maintenance Optimization
-Enter the corresponding number (1-4): """))
+            user_input = int(input("Select an option:\n1. Trend Analysis\n2. Resource Utilization\n3. Performance Metrics\n4. Maintenance Optimization\nEnter the corresponding number (1-4): "))
             if 1 <= user_input <= 4:
                 return user_input
             else:
                 print("Invalid input. Please enter a number between 1 and 4.")
         except ValueError:
             print("Invalid input. Please enter a valid number.")
+
+def handle_response(response_message):
+    """
+    Extract and print the image URL and executive summary from the response message.
+    """
+    # Extract and print the image URL if available
+    pattern = r'\(/TempImageProxy/[^)]+\)'
+    match = re.search(pattern, response_message)
+    if match:
+        extracted_text = match.group(0)[1:-1]  # Remove the parentheses
+        final_url = 'https://uat-shell-e-chat.shell.com/api' + extracted_text
+        print(final_url)
+
+    # Extract and print the executive summary if available
+    summary_pattern = r'Executive summary\s*(.*)'
+    summary_match = re.search(summary_pattern, response_message, re.DOTALL)
+    if summary_match:
+        executive_summary = summary_match.group(1).strip()
+        print("Executive Summary:", executive_summary)
 
 def main():
     application_id = 47
@@ -65,17 +78,13 @@ def main():
             "context": "Measuring the average duration provides insights into efficiency and resource utilization. It helps set realistic expectations for work order completion times and informs scheduling decisions."
         },
         4: {
-            "description": """Given the provided CSV file, your task is to perform the following steps:
-Ask the user for the Functional Location and an Operation WorkCenter .
-Only use the following columns for further analysis: 'Order Type', 'Operation WorkCenter', 'Functional Location', 'Operation short text', 'Description', 'Total planned costs', 'Total actual costs', 'Scheduled finish', 'Scheduled start'.
-Analyze the Operation short text and Description in all the orders for the provided Functional Location and Operation WorkCenter.
-Summarize your analysis. If there are no 72FP orders, summarize all the activities done in 72FC orders and also suggest the user to schedule PM if needed.
-Based on your analysis, provide a detailed explanation in natural language of what activities (found in Operation short text and Description) can be performed in the ‘72FP’ work orders to eliminate the need for ‘72FC’ work orders."""
+            "description": "Given the provided CSV file, your task is to perform the following steps:\nAsk the user for the Functional Location and an Operation WorkCenter.\nOnly use the following columns for further analysis: 'Order Type', 'Operation WorkCenter', 'Functional Location', 'Operation short text', 'Description', 'Total planned costs', 'Total actual costs', 'Scheduled finish', 'Scheduled start'.\nAnalyze the Operation short text and Description in all the orders for the provided Functional Location and Operation WorkCenter.\nSummarize your analysis. If there are no 72FP orders, summarize all the activities done in 72FC orders and also suggest the user to schedule PM if needed.\nBased on your analysis, provide a detailed explanation in natural language of what activities (found in Operation short text and Description) can be performed in the ‘72FP’ work orders to eliminate the need for ‘72FC’ work orders."
         }
     }
 
     # Load configuration and create Shelle client
-    config = load_configuration(os.path.join(os.path.dirname(__file__), "run_configuration_uat.json"))
+    config_path = os.path.join(os.path.dirname(__file__), "run_configuration_uat.json")
+    config = load_configuration(config_path)
     client = create_shelle_client(config, application_id)
     
     # Start a new conversation
@@ -99,37 +108,24 @@ Based on your analysis, provide a detailed explanation in natural language of wh
     # Get the user's choice of analysis
     user_input = get_user_input()
     prompt = prompt_mapping.get(user_input, {"description": "Invalid input. No prompt available."})
-    full_prompt = f" {prompt['description']} {prompt.get('context', '')}"
+    full_prompt = f"{prompt['description']} {prompt.get('context', '')}"
     prompt_dict.append({"role": "user", "content": full_prompt})
 
     message = ""
     while message.lower() != "quit":
         # Construct the prompt string from conversation history
-        prompt_string = ' '.join([item['content'] for item in prompt_dict])
+        prompt_string = ' '.join(item['content'] for item in prompt_dict)
         
         # Get response from Shelle
         response = client.get_response(prompt=prompt_string, overrides=overrides, timeout=9999)
         
         # Print the response
-        print(f"Shell-e: {response.message}")
-        
-        intermediate_response = response.message
-        
-        # Extract and print the image URL if available
-        pattern = r'\(/TempImageProxy/[^)]+\)'
-        match = re.search(pattern, intermediate_response)
-        if match:
-            extracted_text = match.group(0)[1:-1]  # Remove the parentheses
-            final_url = 'https://uat-shell-e-chat.shell.com/api' + extracted_text
-            print(final_url)
+        response_message = response.message
+        print(f"Shell-e: {response_message}")
 
-        # Extract and print the executive summary if available
-        summary_pattern = r'Executive summary\s*(.*)'
-        summary_match = re.search(summary_pattern, intermediate_response, re.DOTALL)
-        if summary_match:
-            executive_summary = summary_match.group(1).strip()
-            print("Executive Summary:", executive_summary)
-                
+        # Handle response for image URLs and executive summaries
+        handle_response(response_message)
+
         # Get user input for further questions
         message = input()
         if message.lower() != "quit":
