@@ -5,8 +5,18 @@ import re
 import streamlit as st
 import logging
 
-# Set up logging to print to the terminal
-logging.basicConfig(level=logging.DEBUG)
+# Set up logging to print to the terminal and save to a file
+class CustomFilter(logging.Filter):
+    def filter(self, record):
+        # Exclude messages containing specific text
+        return not (record.msg.startswith("Initialized") or record.msg.startswith("Uploaded file"))
+
+logging.basicConfig(level=logging.DEBUG, handlers=[
+    logging.FileHandler("interaction_log.txt"),
+    logging.StreamHandler()
+])
+logger = logging.getLogger()
+logger.addFilter(CustomFilter())
 
 def load_configuration(file_path):
     try:
@@ -47,8 +57,10 @@ def truncate_history(history, max_tokens=2000):
 def get_response_from_shelle(client, prompt_string, overrides, history):
     """Function to get response from Shelle and update the conversation history."""
     response = client.get_response(prompt=prompt_string, overrides=overrides, timeout=9999)
+    
+    # Log the input and the response
     st.write(f"**Shell-e Response:** {response.message}")
-    logging.debug(f"Response: {response.message}")
+    logger.debug(f"Response: {response.message}")
 
     intermediate_response = response.message
     
@@ -71,6 +83,12 @@ def get_response_from_shelle(client, prompt_string, overrides, history):
     history.append({"role": "assistant", "content": response.message})
     
     return history
+
+def start_conversation_indicator():
+    logger.info("=== Conversation Started ===")
+
+def end_conversation_indicator():
+    logger.info("=== Conversation Ended ===")
 
 def main():
     st.title("PM Optimizer")
@@ -101,19 +119,19 @@ Summarize your analysis. If there are no 72FP orders, summarize all the activiti
     config_path = os.path.join(os.path.dirname(__file__), "run_configuration_uat.json")
     config = load_configuration(config_path)
 
-    # Initialize ShelleClient and store in session state
+    # Initialize ShelleClient only once if it hasn't been initialized yet
     if 'client' not in st.session_state:
         st.session_state.client = create_shelle_client(config, application_id)
-        logging.debug("Initialized ShelleClient and stored in session state.")
+        logger.debug("Initialized ShelleClient and stored in session state.")
 
     # Initialize session state variables
     if 'prompt_dict' not in st.session_state:
         st.session_state.prompt_dict = []
-        logging.debug("Initialized prompt_dict in session state.")
+        logger.debug("Initialized prompt_dict in session state.")
 
     if 'conversation_started' not in st.session_state:
         st.session_state.conversation_started = False
-        logging.debug("Initialized conversation_started flag in session state.")
+        logger.debug("Initialized conversation_started flag in session state.")
 
     if 'overrides' not in st.session_state:
         st.session_state.overrides = {
@@ -122,7 +140,7 @@ Summarize your analysis. If there are no 72FP orders, summarize all the activiti
             "presence_penalty": 0.0,
             "temperature": 0
         }
-        logging.debug("Initialized overrides in session state.")
+        logger.debug("Initialized overrides in session state.")
 
     # File input and option selection
     file_path = st.text_input("Enter the full file path of the CSV file:")
@@ -142,15 +160,16 @@ Summarize your analysis. If there are no 72FP orders, summarize all the activiti
             # Start a new conversation with Shelle
             st.session_state.client.new_conversation()
             st.session_state.conversation_started = True
-            logging.debug("Started new conversation.")
+            start_conversation_indicator()
+            logger.debug("Started new conversation.")
 
             # Upload the file to Shelle
             try:
                 st.session_state.client.upload_file(file_=file_path)
-                logging.debug(f"Uploaded file: {file_path}")
+                logger.debug(f"Uploaded file: {file_path}")
             except Exception as e:
                 st.error(f"Error uploading file: {e}")
-                logging.error(f"Error uploading file: {e}")
+                logger.error(f"Error uploading file: {e}")
                 st.stop()
 
             # Generate the initial prompt
@@ -158,7 +177,7 @@ Summarize your analysis. If there are no 72FP orders, summarize all the activiti
             initial_prompt = f"You are a seasoned engineer and data analyst tasked with analyzing maintenance work order data. Your goal is to provide insightful analyses based on the given CSV file, with a focus on optimizing maintenance schedules, understanding efficiency, and improving overall processes. For each analysis, you should always provide an executive summary that is concise and under 1000 words. Include graphs to visualize trends and key findings where applicable, but avoid unnecessary explanations or steps taken. Please ensure that the summary is focused and relevant to the specific prompts provided. {prompt['description']} {prompt.get('context', '')}"
 
             st.session_state.prompt_dict.append({"role": "user", "content": initial_prompt})
-            logging.debug(f"Initial prompt added to prompt_dict: {initial_prompt}")
+            logger.debug(f"Initial prompt added to prompt_dict: {initial_prompt}")
 
             # Get the initial response from Shelle
             st.session_state.prompt_dict = get_response_from_shelle(
@@ -174,18 +193,18 @@ Summarize your analysis. If there are no 72FP orders, summarize all the activiti
     if st.button("Send") and user_message:
         if not st.session_state.conversation_started:
             st.error("Please start an analysis first by uploading a file and pressing 'Start Analysis'.")
-            logging.error("Attempted to send message without starting a conversation.")
+            logger.error("Attempted to send message without starting a conversation.")
         else:
             # Add the user's message to the conversation history
             st.session_state.prompt_dict.append({"role": "user", "content": user_message})
-            logging.debug(f"User message added to prompt_dict: {user_message}")
+            logger.debug(f"User message added to prompt_dict: {user_message}")
 
             # Truncate history to manage token limits
             truncated_history = truncate_history(st.session_state.prompt_dict)
             prompt_string = ' '.join([item['content'] for item in truncated_history])
 
             # Debug output
-            logging.debug(f"Prompt String: {prompt_string}")
+            logger.debug(f"Prompt String: {prompt_string}")
 
             # Get the response from Shelle with conversation history
             st.session_state.prompt_dict = get_response_from_shelle(
@@ -194,6 +213,9 @@ Summarize your analysis. If there are no 72FP orders, summarize all the activiti
                 st.session_state.overrides,
                 st.session_state.prompt_dict
             )
+
+    if st.session_state.conversation_started:
+        end_conversation_indicator()
 
 if __name__ == "__main__":
     main()
